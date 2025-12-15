@@ -1,0 +1,1141 @@
+local model = game:GetObjects("rbxassetid://99241196464591")[1]
+local ex = model:FindFirstChild("DestroyerEx")
+
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+
+local Players = game:GetService("Players")
+local plr = Players.LocalPlayer or Players:GetPlayers()[1]
+
+if plr and not plr.Character then
+	plr.CharacterAdded:Wait()
+end
+
+if ex and not workspace:FindFirstChild("DestroyerEx") then
+	if not ex.PrimaryPart then
+		ex.PrimaryPart = ex:FindFirstChildWhichIsA("BasePart")
+	end
+
+	if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+		ex.PrimaryPart.Anchored = true
+		ex:SetPrimaryPartCFrame(plr.Character.HumanoidRootPart.CFrame + Vector3.new(0, 10, 0))
+		ex.Parent = workspace
+		task.wait(1)
+		ex.PrimaryPart.Anchored = false
+		end
+    end
+		local vehicle = ex
+		local guiScripts = vehicle:FindFirstChild("GuiScripts")
+        local door = guiScripts.Door
+		local Seat = guiScripts:FindFirstChild("VehicleSeat")
+
+
+
+local vehicle = ex
+local guiScripts = vehicle.GuiScripts
+local seat = guiScripts.VehicleSeat
+local door = guiScripts.Door
+local doorPrompt = door.PromptAttachment.ProximityPrompt
+ 
+for i,v in vehicle:GetDescendants() do
+    if v:IsA("BasePart") then
+        v.CollisionGroup = "DestroyerEx"
+    end
+end
+ 
+local sets = {
+AnchoredOn = false,
+AnchoredMass = 0,
+SplitParts = true
+}
+ 
+local doorOn = false
+doorPrompt.Triggered:Connect(function()
+    doorOn = not doorOn
+    door.HingeConstraint.TargetAngle = doorOn and -90 or 0
+end)
+ 
+ 
+local driveL = guiScripts.FL.DriveMotor
+local driveR = guiScripts.FR.DriveMotor
+local swing = guiScripts.SlewingRing.Swing
+
+function owner(plr)
+    local descs = vehicle:GetDescendants()
+    for i,v in pairs(descs) do
+        if v:IsA("BasePart") then
+            v:SetNetworkOwner(plr)
+        end
+    end
+end
+ 
+local lastEngineSoundTime = 0
+local function engineSound(on)
+    local curTime = tick()
+    lastEngineSoundTime = curTime
+    
+    if on then
+        task.spawn(function()
+            vehicle.Counterweight.Start:Play()
+            task.wait(1.5)
+            if lastEngineSoundTime ~= curTime then return end
+            vehicle.Counterweight.Engine:Play()
+        end)
+    else
+        vehicle.Counterweight.Start:Stop()
+        vehicle.Counterweight.Engine:Stop()
+    end
+end
+ 
+local currentGui,driver
+function onChildAdded(child)
+    if child.Name == "SeatWeld" and child.Part1.Name == "HumanoidRootPart" then
+        local plr = game:GetService("Players").LocalPlayer
+        if plr then
+            if currentGui then
+                currentGui:Destroy()
+            end
+            
+            engineSound(true)
+            
+            currentGui = seat.ExGui:Clone()
+            currentGui.Parent = plr.PlayerGui
+            owner(plr)
+            driver = plr
+            doorPrompt.Enabled = false
+        end
+    end
+end
+ 
+function onChildRemoved(child)
+    if child.Name == "SeatWeld" then
+        if currentGui then
+            currentGui:Destroy()
+        end
+        
+        engineSound(false)
+        
+        driver = nil
+        doorPrompt.Enabled = true
+    end
+end
+ 
+seat.ChildAdded:connect(onChildAdded)
+seat.ChildRemoved:connect(onChildRemoved)
+ 
+-- Sounds
+local sounds = {
+Main = {
+Sound = guiScripts.MainPivot.Sound,
+Start = 0,
+LoopStart = 0.5,
+LoopEnd = 2
+},
+Stick = {
+Sound = guiScripts.StickPivot.Sound,
+Start = 0,
+LoopStart = 0.5,
+LoopEnd = 2
+},
+Bucket = {
+Sound = guiScripts.BucketPivot.Sound,
+Start = 0,
+LoopStart = 0.5,
+LoopEnd = 2
+},
+Spin = {
+Sound = guiScripts.SlewingRing.Sound,
+Start = 0,
+LoopStart = 0,
+LoopEnd = math.huge
+},
+Horn = {
+Sound = guiScripts.VehicleSeat.Sound,
+OneTime = true
+}
+}
+ 
+local function playSound(name)
+    local data = sounds[name]
+    local sound = data.Sound
+    
+    if data.OneTime then
+        if not sound.Playing then
+            sound:Play()
+        end
+        return
+    end
+    
+    data.LastTime = tick()
+    
+    if not data.Setup then
+        sound.DidLoop:Connect(function()
+            sound.TimePosition = data.LoopStart
+        end)
+        data.Setup = true
+    end
+    
+    if not sound.Playing then
+        if data.Start then
+            sound.TimePosition = data.Start
+        end
+        sound:Play()
+        while tick() - data.LastTime < 0.25 do
+            if sound.TimePosition >= data.LoopEnd then
+                sound.TimePosition = data.LoopStart
+            end
+            task.wait()
+        end
+        sound:Stop()
+    end
+end
+ 
+local lights = false
+ 
+-- Heavy
+for i,v in pairs(vehicle:GetDescendants()) do
+    if v:IsA("BasePart") then
+        v.CustomPhysicalProperties = PhysicalProperties.new(100,0.4,0)
+    end
+end
+guiScripts.Door.CustomPhysicalProperties = PhysicalProperties.new(7.85,0.4,0)
+ 
+-- Destroyer
+local maxSplit = 4
+local max = math.max
+local min = math.min
+
+local function splitPart(part)
+    if not part or not sets.SplitParts or part:IsA("MeshPart") or part:IsA("Terrain") or part:GetAttribute("ExSplit") then
+        return
+    end
+	part:SetAttribute("ExSplit", true)
+	part.CollisionGroup = "DestroyerExParts"
+
+	local isUnion = part:IsA("UnionOperation") or part:IsA("WedgePart") or part:IsA("CornerWedgePart") or (part:IsA("Part") and part.Shape ~= Enum.PartType.Block)
+
+	local split = part:Clone()
+	split:SetAttribute("ExSplit", false)
+	split:SetAttribute("ExBroken", false)
+	split:SetAttribute("IsSplitPart", true)
+
+	local newSizeX = split.Size.X/2
+	local newSizeY = split.Size.Y/2
+	local newSizeZ = split.Size.Z/2
+
+	local canSplitX = (split.Size.X >= maxSplit)
+	local canSplitY = (split.Size.Y >= maxSplit)
+	local canSplitZ = (split.Size.Z >= maxSplit)
+
+	if not canSplitX and not canSplitY and not canSplitZ then return end
+
+	split.Size = Vector3.new(canSplitX and newSizeX or split.Size.X,
+		canSplitY and newSizeY or split.Size.Y,
+		canSplitZ and newSizeZ or split.Size.Z)
+
+	local xIter = (canSplitX and -1 or 0)
+	local yIter = (canSplitY and -1 or 0)
+	local zIter = (canSplitZ and -1 or 0)
+
+	while true do
+		local scr = split:FindFirstChildWhichIsA("LuaSourceContainer")
+		if scr then scr:Destroy() else break end
+	end
+
+	local qSize = part.Size/4
+
+	if isUnion then
+		local cut = Instance.new("Part")
+		cut.Size = split.Size*1.01
+		cut.Anchored = true
+		cut.CanCollide = false
+
+		local partPar = part.Parent
+		part.Parent = game:GetService("ReplicatedStorage")
+		local shadow = part:Clone()
+		shadow:SetAttribute("ExProtect", true)
+		shadow.Anchored = true
+		shadow.CanCollide = false
+		shadow.Parent = partPar
+
+		local cuts = {}
+		for x = xIter,1,2 do
+			for y = yIter,1,2 do
+				for z = zIter,1,2 do
+					local newCut = cut:Clone()
+					local xOff = x*qSize.X
+					local yOff = y*qSize.Y
+					local zOff = z*qSize.Z
+					newCut.CFrame = part.CFrame:ToWorldSpace(CFrame.new(xOff,yOff,zOff))
+					table.insert(cuts,newCut)
+				end
+			end
+		end
+
+		local done = 0
+		local finalCuts = {}
+		local totalCuts = #cuts
+
+		for i,v in pairs(cuts) do
+			task.spawn(function()
+				local clone = {}
+				for _,c in pairs(cuts) do
+					if c ~= v then table.insert(clone,c) end
+				end
+				local success, partCut = pcall(function() return part:SubtractAsync(clone) end)
+				if success and partCut then
+					partCut:SetAttribute("ExBroken", false)
+					partCut:SetAttribute("IsSplitPart", true)
+					partCut.CollisionGroup = "DestroyerExParts"
+					table.insert(finalCuts, partCut)
+				end
+				done += 1
+			end)
+		end
+
+		task.spawn(function()
+			while done ~= totalCuts do task.wait() end
+			shadow:Destroy()
+			for _,v in pairs(finalCuts) do
+				v.Parent = partPar
+			end
+		end)
+	else
+		for x = xIter,1,2 do
+			for y = yIter,1,2 do
+				for z = zIter,1,2 do
+					local newSplit = split:Clone()
+					local xOff = x*qSize.X
+					local yOff = y*qSize.Y
+					local zOff = z*qSize.Z
+					newSplit.CFrame = part.CFrame:ToWorldSpace(CFrame.new(xOff,yOff,zOff))
+					newSplit.Parent = part.Parent
+				end
+			end
+		end
+	end
+
+	part.Parent = game:GetService("ReplicatedStorage")
+	task.spawn(function()
+		task.wait(1)
+		part:Destroy()
+	end)
+end
+
+local function destroyer(p)
+	if not p then return end
+	p.Massless = true
+	p.Touched:Connect(function(other)
+		if other.Anchored and (not sets.AnchoredOn or other:GetMass() > sets.AnchoredMass) then return end
+		if other:GetAttribute("ExProtect") then return end
+		if not other:GetAttribute("ExBroken") then
+			other:SetAttribute("ExBroken", true)
+			other.Anchored = false
+			other:BreakJoints()
+		end
+		splitPart(other)
+		if not other:FindFirstChild("ExDestroyedSound") then
+			local s = Instance.new("Sound")
+			s.Name = "ExDestroyedSound"
+			s.SoundId = "rbxassetid://1413007009"
+			s.Parent = other
+			s:Play()
+			game:GetService("Debris"):AddItem(s, 1)
+		end
+		if not other:GetAttribute("ExDebris") then
+			other:SetAttribute("ExDebris", true)
+			game:GetService("Debris"):AddItem(other, 30)
+		end
+	end)
+end
+
+destroyer(guiScripts.Bucket)
+destroyer(guiScripts.Claw2)
+destroyer(guiScripts.Stick)
+destroyer(guiScripts.MainBoom)
+for _,v in pairs(vehicle:GetChildren()) do
+	if v.Name == "Hydraulics" then
+		for _,h in pairs(v:GetChildren()) do
+			destroyer(h)
+		end
+	end
+end
+
+local doorParts = {guiScripts.Door, vehicle:WaitForChild("DoorWindows"), vehicle:WaitForChild("DoorWelder")}
+for _,p in pairs(doorParts) do
+	for _,v in pairs(vehicle:GetDescendants()) do
+		if v:IsA("BasePart") and not table.find(doorParts, v) then
+			local col = Instance.new("NoCollisionConstraint")
+			col.Part0 = p
+			col.Part1 = v
+			col.Parent = p
+		end
+	end
+end
+    
+
+local sitting = false
+local cooldown = false
+local cooldownTime = 2
+local drivingGui = nil
+
+local function ExGuiii()
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local ExGui = Instance.new("ScreenGui")
+ExGui.Name = "ExGui"
+ExGui.Parent = player:WaitForChild("PlayerGui")
+ExGui.ResetOnSpawn = true
+
+local Frame = Instance.new("Frame")
+Frame.Name = "Frame"
+Frame.Parent = ExGui
+Frame.Name = "Frame"
+Frame.Archivable = true
+Frame.Position = UDim2.new(0.05000000074505806, 0, 0.6000000238418579, 0)
+Frame.Size = UDim2.new(0, 150, 0, 255)
+Frame.AnchorPoint = Vector2.new(0, 0)
+Frame.Visible = true
+Frame.ZIndex = 1
+Frame.ClipsDescendants = false
+Frame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+Frame.BackgroundTransparency = 0
+Frame.BorderColor3 = Color3.fromRGB(27, 42, 53)
+Frame.BorderSizePixel = 0
+Frame.Rotation = 0
+Frame.SizeConstraint = Enum.SizeConstraint.RelativeXY
+Frame.Style = Enum.FrameStyle.Custom
+Frame.Selectable = false
+Frame.Active = false
+Frame.Draggable = false
+Frame.AutomaticSize = Enum.AutomaticSize.None
+Frame.SelectionGroup = false
+Frame.LayoutOrder = 0
+
+local CleanButton = Instance.new("TextButton")
+CleanButton.Name = "CleanButton"
+CleanButton.Parent = Frame
+CleanButton.Name = "CleanButton"
+CleanButton.Archivable = true
+CleanButton.Position = UDim2.new(0, 5, 1, -140)
+CleanButton.Size = UDim2.new(1, -10, 0, 25)
+CleanButton.AnchorPoint = Vector2.new(0, 0)
+CleanButton.Visible = true
+CleanButton.ZIndex = 1
+CleanButton.ClipsDescendants = false
+CleanButton.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+CleanButton.BackgroundTransparency = 0
+CleanButton.BorderColor3 = Color3.fromRGB(27, 42, 53)
+CleanButton.BorderSizePixel = 1
+CleanButton.Rotation = 0
+CleanButton.SizeConstraint = Enum.SizeConstraint.RelativeXY
+CleanButton.Modal = false
+CleanButton.Style = Enum.ButtonStyle.Custom
+CleanButton.Selectable = true
+CleanButton.Active = true
+CleanButton.Draggable = false
+CleanButton.AutomaticSize = Enum.AutomaticSize.None
+CleanButton.Font = Enum.Font.SourceSans
+CleanButton.Text = "Clean Parts"
+CleanButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CleanButton.TextTransparency = 0
+CleanButton.TextSize = 14
+CleanButton.TextScaled = false
+CleanButton.TextWrapped = false
+CleanButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+CleanButton.TextStrokeTransparency = 1
+CleanButton.TextXAlignment = Enum.TextXAlignment.Center
+CleanButton.TextYAlignment = Enum.TextYAlignment.Center
+CleanButton.RichText = false
+CleanButton.LineHeight = 1
+CleanButton.AutoButtonColor = true
+CleanButton.Modal = false
+CleanButton.SelectionGroup = false
+CleanButton.LayoutOrder = 0
+
+local UICorner = Instance.new("UICorner")
+UICorner.Name = "UICorner"
+UICorner.Parent = CleanButton
+UICorner.Name = "UICorner"
+UICorner.Archivable = true
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local DoorButton = Instance.new("TextButton")
+DoorButton.Name = "DoorButton"
+DoorButton.Parent = Frame
+DoorButton.Name = "DoorButton"
+DoorButton.Archivable = true
+DoorButton.Position = UDim2.new(0, 5, 1, -230)
+DoorButton.Size = UDim2.new(1, -10, 0, 25)
+DoorButton.AnchorPoint = Vector2.new(0, 0)
+DoorButton.Visible = true
+DoorButton.ZIndex = 1
+DoorButton.ClipsDescendants = false
+DoorButton.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+DoorButton.BackgroundTransparency = 0
+DoorButton.BorderColor3 = Color3.fromRGB(27, 42, 53)
+DoorButton.BorderSizePixel = 1
+DoorButton.Rotation = 0
+DoorButton.SizeConstraint = Enum.SizeConstraint.RelativeXY
+DoorButton.Modal = false
+DoorButton.Style = Enum.ButtonStyle.Custom
+DoorButton.Selectable = true
+DoorButton.Active = true
+DoorButton.Draggable = false
+DoorButton.AutomaticSize = Enum.AutomaticSize.None
+DoorButton.Font = Enum.Font.SourceSans
+DoorButton.Text = "Toggle Door"
+DoorButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+DoorButton.TextTransparency = 0
+DoorButton.TextSize = 14
+DoorButton.TextScaled = false
+DoorButton.TextWrapped = false
+DoorButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+DoorButton.TextStrokeTransparency = 1
+DoorButton.TextXAlignment = Enum.TextXAlignment.Center
+DoorButton.TextYAlignment = Enum.TextYAlignment.Center
+DoorButton.RichText = false
+DoorButton.LineHeight = 1
+DoorButton.AutoButtonColor = true
+DoorButton.Modal = false
+DoorButton.SelectionGroup = false
+DoorButton.LayoutOrder = 0
+
+local UICorner = Instance.new("UICorner")
+UICorner.Name = "UICorner"
+UICorner.Parent = DoorButton
+UICorner.Name = "UICorner"
+UICorner.Archivable = true
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local AnchoredMass = Instance.new("TextBox")
+AnchoredMass.Name = "AnchoredMass"
+AnchoredMass.Parent = Frame
+AnchoredMass.Name = "AnchoredMass"
+AnchoredMass.Archivable = true
+AnchoredMass.Position = UDim2.new(0, 5, 1, -30)
+AnchoredMass.Size = UDim2.new(1, -10, 0, 25)
+AnchoredMass.AnchorPoint = Vector2.new(0, 0)
+AnchoredMass.Visible = true
+AnchoredMass.ZIndex = 1
+AnchoredMass.ClipsDescendants = false
+AnchoredMass.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+AnchoredMass.BackgroundTransparency = 0
+AnchoredMass.BorderColor3 = Color3.fromRGB(30, 30, 30)
+AnchoredMass.BorderSizePixel = 0
+AnchoredMass.Rotation = 0
+AnchoredMass.SizeConstraint = Enum.SizeConstraint.RelativeXY
+AnchoredMass.Selectable = true
+AnchoredMass.Active = true
+AnchoredMass.Draggable = false
+AnchoredMass.AutomaticSize = Enum.AutomaticSize.None
+AnchoredMass.Font = Enum.Font.SourceSans
+AnchoredMass.Text = ""
+AnchoredMass.TextColor3 = Color3.fromRGB(255, 255, 255)
+AnchoredMass.TextTransparency = 0
+AnchoredMass.TextSize = 14
+AnchoredMass.TextScaled = false
+AnchoredMass.TextWrapped = false
+AnchoredMass.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+AnchoredMass.TextStrokeTransparency = 1
+AnchoredMass.TextXAlignment = Enum.TextXAlignment.Center
+AnchoredMass.TextYAlignment = Enum.TextYAlignment.Center
+AnchoredMass.RichText = false
+AnchoredMass.ClearTextOnFocus = true
+AnchoredMass.PlaceholderText = ""
+AnchoredMass.PlaceholderColor3 = Color3.fromRGB(200, 200, 200)
+AnchoredMass.MultiLine = false
+AnchoredMass.LineHeight = 1
+AnchoredMass.SelectionGroup = false
+AnchoredMass.LayoutOrder = 0
+
+local UICorner = Instance.new("UICorner")
+UICorner.Name = "UICorner"
+UICorner.Parent = AnchoredMass
+UICorner.Name = "UICorner"
+UICorner.Archivable = true
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local UICorner = Instance.new("UICorner")
+UICorner.Name = "UICorner"
+UICorner.Parent = Frame
+UICorner.Name = "UICorner"
+UICorner.Archivable = true
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local SplitButton = Instance.new("TextButton")
+SplitButton.Name = "SplitButton"
+SplitButton.Parent = Frame
+SplitButton.Name = "SplitButton"
+SplitButton.Archivable = true
+SplitButton.Position = UDim2.new(0, 5, 1, -110)
+SplitButton.Size = UDim2.new(1, -10, 0, 25)
+SplitButton.AnchorPoint = Vector2.new(0, 0)
+SplitButton.Visible = true
+SplitButton.ZIndex = 1
+SplitButton.ClipsDescendants = false
+SplitButton.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+SplitButton.BackgroundTransparency = 0
+SplitButton.BorderColor3 = Color3.fromRGB(27, 42, 53)
+SplitButton.BorderSizePixel = 1
+SplitButton.Rotation = 0
+SplitButton.SizeConstraint = Enum.SizeConstraint.RelativeXY
+SplitButton.Modal = false
+SplitButton.Style = Enum.ButtonStyle.Custom
+SplitButton.Selectable = true
+SplitButton.Active = true
+SplitButton.Draggable = false
+SplitButton.AutomaticSize = Enum.AutomaticSize.None
+SplitButton.Font = Enum.Font.SourceSans
+SplitButton.Text = "Split Parts:"
+SplitButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+SplitButton.TextTransparency = 0
+SplitButton.TextSize = 14
+SplitButton.TextScaled = false
+SplitButton.TextWrapped = false
+SplitButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+SplitButton.TextStrokeTransparency = 1
+SplitButton.TextXAlignment = Enum.TextXAlignment.Center
+SplitButton.TextYAlignment = Enum.TextYAlignment.Center
+SplitButton.RichText = false
+SplitButton.LineHeight = 1
+SplitButton.AutoButtonColor = true
+SplitButton.Modal = false
+SplitButton.SelectionGroup = false
+SplitButton.LayoutOrder = 0
+
+local UICorner = Instance.new("UICorner")
+UICorner.Name = "UICorner"
+UICorner.Parent = SplitButton
+UICorner.Name = "UICorner"
+UICorner.Archivable = true
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local LightButton = Instance.new("TextButton")
+LightButton.Name = "LightButton"
+LightButton.Parent = Frame
+LightButton.Name = "LightButton"
+LightButton.Archivable = true
+LightButton.Position = UDim2.new(0, 5, 1, -200)
+LightButton.Size = UDim2.new(1, -10, 0, 25)
+LightButton.AnchorPoint = Vector2.new(0, 0)
+LightButton.Visible = true
+LightButton.ZIndex = 1
+LightButton.ClipsDescendants = false
+LightButton.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+LightButton.BackgroundTransparency = 0
+LightButton.BorderColor3 = Color3.fromRGB(27, 42, 53)
+LightButton.BorderSizePixel = 1
+LightButton.Rotation = 0
+LightButton.SizeConstraint = Enum.SizeConstraint.RelativeXY
+LightButton.Modal = false
+LightButton.Style = Enum.ButtonStyle.Custom
+LightButton.Selectable = true
+LightButton.Active = true
+LightButton.Draggable = false
+LightButton.AutomaticSize = Enum.AutomaticSize.None
+LightButton.Font = Enum.Font.SourceSans
+LightButton.Text = "Toggle Lights"
+LightButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+LightButton.TextTransparency = 0
+LightButton.TextSize = 14
+LightButton.TextScaled = false
+LightButton.TextWrapped = false
+LightButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+LightButton.TextStrokeTransparency = 1
+LightButton.TextXAlignment = Enum.TextXAlignment.Center
+LightButton.TextYAlignment = Enum.TextYAlignment.Center
+LightButton.RichText = false
+LightButton.LineHeight = 1
+LightButton.AutoButtonColor = true
+LightButton.Modal = false
+LightButton.SelectionGroup = false
+LightButton.LayoutOrder = 0
+
+local UICorner = Instance.new("UICorner")
+UICorner.Name = "UICorner"
+UICorner.Parent = LightButton
+UICorner.Name = "UICorner"
+UICorner.Archivable = true
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local TextLabel = Instance.new("TextLabel")
+TextLabel.Name = "TextLabel"
+TextLabel.Parent = Frame
+TextLabel.Name = "TextLabel"
+TextLabel.Archivable = true
+TextLabel.Position = UDim2.new(0, 5, 1, -50)
+TextLabel.Size = UDim2.new(1, -10, 0, 20)
+TextLabel.AnchorPoint = Vector2.new(0, 0)
+TextLabel.Visible = true
+TextLabel.ZIndex = 1
+TextLabel.ClipsDescendants = false
+TextLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+TextLabel.BackgroundTransparency = 1
+TextLabel.BorderColor3 = Color3.fromRGB(27, 42, 53)
+TextLabel.BorderSizePixel = 1
+TextLabel.Rotation = 0
+TextLabel.SizeConstraint = Enum.SizeConstraint.RelativeXY
+TextLabel.Selectable = false
+TextLabel.Active = false
+TextLabel.Draggable = false
+TextLabel.AutomaticSize = Enum.AutomaticSize.None
+TextLabel.Font = Enum.Font.SourceSans
+TextLabel.Text = "Max Anchored Mass"
+TextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TextLabel.TextTransparency = 0
+TextLabel.TextSize = 14
+TextLabel.TextScaled = false
+TextLabel.TextWrapped = false
+TextLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+TextLabel.TextStrokeTransparency = 1
+TextLabel.TextXAlignment = Enum.TextXAlignment.Center
+TextLabel.TextYAlignment = Enum.TextYAlignment.Center
+TextLabel.RichText = false
+TextLabel.LineHeight = 1
+TextLabel.SelectionGroup = false
+TextLabel.LayoutOrder = 0
+
+local AnchoredButton = Instance.new("TextButton")
+AnchoredButton.Name = "AnchoredButton"
+AnchoredButton.Parent = Frame
+AnchoredButton.Name = "AnchoredButton"
+AnchoredButton.Archivable = true
+AnchoredButton.Position = UDim2.new(0, 5, 1, -80)
+AnchoredButton.Size = UDim2.new(1, -10, 0, 25)
+AnchoredButton.AnchorPoint = Vector2.new(0, 0)
+AnchoredButton.Visible = true
+AnchoredButton.ZIndex = 1
+AnchoredButton.ClipsDescendants = false
+AnchoredButton.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+AnchoredButton.BackgroundTransparency = 0
+AnchoredButton.BorderColor3 = Color3.fromRGB(27, 42, 53)
+AnchoredButton.BorderSizePixel = 1
+AnchoredButton.Rotation = 0
+AnchoredButton.SizeConstraint = Enum.SizeConstraint.RelativeXY
+AnchoredButton.Modal = false
+AnchoredButton.Style = Enum.ButtonStyle.Custom
+AnchoredButton.Selectable = true
+AnchoredButton.Active = true
+AnchoredButton.Draggable = false
+AnchoredButton.AutomaticSize = Enum.AutomaticSize.None
+AnchoredButton.Font = Enum.Font.SourceSans
+AnchoredButton.Text = "Destroyed Anchored:"
+AnchoredButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+AnchoredButton.TextTransparency = 0
+AnchoredButton.TextSize = 14
+AnchoredButton.TextScaled = false
+AnchoredButton.TextWrapped = false
+AnchoredButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+AnchoredButton.TextStrokeTransparency = 1
+AnchoredButton.TextXAlignment = Enum.TextXAlignment.Center
+AnchoredButton.TextYAlignment = Enum.TextYAlignment.Center
+AnchoredButton.RichText = false
+AnchoredButton.LineHeight = 1
+AnchoredButton.AutoButtonColor = true
+AnchoredButton.Modal = false
+AnchoredButton.SelectionGroup = false
+AnchoredButton.LayoutOrder = 0
+
+local UICorner = Instance.new("UICorner")
+UICorner.Name = "UICorner"
+UICorner.Parent = AnchoredButton
+UICorner.Name = "UICorner"
+UICorner.Archivable = true
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local FixButton = Instance.new("TextButton")
+FixButton.Name = "FixButton"
+FixButton.Parent = Frame
+FixButton.Name = "FixButton"
+FixButton.Archivable = true
+FixButton.Position = UDim2.new(0, 5, 1, -170)
+FixButton.Size = UDim2.new(1, -10, 0, 25)
+FixButton.AnchorPoint = Vector2.new(0, 0)
+FixButton.Visible = true
+FixButton.ZIndex = 1
+FixButton.ClipsDescendants = false
+FixButton.BackgroundColor3 = Color3.fromRGB(0, 135, 203)
+FixButton.BackgroundTransparency = 0
+FixButton.BorderColor3 = Color3.fromRGB(27, 42, 53)
+FixButton.BorderSizePixel = 1
+FixButton.Rotation = 0
+FixButton.SizeConstraint = Enum.SizeConstraint.RelativeXY
+FixButton.Modal = false
+FixButton.Style = Enum.ButtonStyle.Custom
+FixButton.Selectable = true
+FixButton.Active = true
+FixButton.Draggable = false
+FixButton.AutomaticSize = Enum.AutomaticSize.None
+FixButton.Font = Enum.Font.SourceSans
+FixButton.Text = "Fix"
+FixButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+FixButton.TextTransparency = 0
+FixButton.TextSize = 14
+FixButton.TextScaled = false
+FixButton.TextWrapped = false
+FixButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+FixButton.TextStrokeTransparency = 1
+FixButton.TextXAlignment = Enum.TextXAlignment.Center
+FixButton.TextYAlignment = Enum.TextYAlignment.Center
+FixButton.RichText = false
+FixButton.LineHeight = 1
+FixButton.AutoButtonColor = true
+FixButton.Modal = false
+FixButton.SelectionGroup = false
+FixButton.LayoutOrder = 0
+
+local UICorner = Instance.new("UICorner")
+UICorner.Name = "UICorner"
+UICorner.Parent = FixButton
+UICorner.Name = "UICorner"
+UICorner.Archivable = true
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local Vehicle = Instance.new("ObjectValue")
+Vehicle.Name = "Vehicle"
+Vehicle.Parent = ExGui
+Vehicle.Name = "Vehicle"
+Vehicle.Archivable = true
+ 
+local frame = Frame
+local anchoredButton = frame:WaitForChild("AnchoredButton")
+local anchoredBox = frame:WaitForChild("AnchoredMass")
+local doorButton = frame:WaitForChild("DoorButton")
+local lightButton = frame:WaitForChild("LightButton")
+local splitButton = frame:WaitForChild("SplitButton")
+local fixButton = frame:WaitForChild("FixButton")
+local cleanButton = frame:WaitForChild("CleanButton")
+
+local UIS = game:GetService("UserInputService")
+ 
+local mouse = game:GetService("Players").LocalPlayer:GetMouse()
+frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local releaseEvent,mouseEvent
+        
+        local initX = frame.AbsolutePosition.X
+        local initY = frame.AbsolutePosition.Y
+        local offX = mouse.X - initX
+        local offY = mouse.Y - initY
+        
+        releaseEvent = UIS.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                releaseEvent:Disconnect()
+                mouseEvent:Disconnect()
+            end
+        end)
+ 
+        mouseEvent = UIS.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement then
+                local inputX,inputY = input.Position.X,input.Position.Y
+                local posX,posY = inputX-offX,inputY-offY
+                frame.Position = UDim2.new(0,posX,0,posY)
+            end
+        end)
+    end
+end)
+ 
+local ancOn = sets.AnchoredOn
+local ancMass = sets.AnchoredMass
+local splitOn = sets.SplitParts
+ 
+anchoredButton.Text = "Destroyed Anchored: "..tostring(ancOn)
+anchoredBox.Text = tostring(ancMass)
+splitButton.Text = "Split Parts: "..tostring(splitOn)
+ 
+anchoredBox.FocusLost:Connect(function()
+    ancMass = tonumber(anchoredBox.Text) or 0
+    sets.AnchoredMass = ancMass
+    anchoredBox.Text = tostring(ancMass)
+end)
+ 
+anchoredButton.MouseButton1Click:Connect(function()
+    ancOn = not ancOn
+    sets.AnchoredOn = ancOn
+    anchoredButton.Text = "Destroyed Anchored: "..tostring(ancOn)
+    destroyer()
+end)
+ 
+splitButton.MouseButton1Click:Connect(function()
+    splitOn = not splitOn
+    sets.SplitParts = splitOn
+    splitButton.Text = "Split Parts: "..tostring(splitOn)
+    splitPart()
+end)
+ 
+doorButton.MouseButton1Click:Connect(function()
+    doorOn = not doorOn
+    door.HingeConstraint.TargetAngle = doorOn and -90 or 0
+end)
+ 
+lightButton.MouseButton1Click:Connect(function()
+    lights = not lights
+        for i,v in pairs(vehicle:GetDescendants()) do
+            if v:IsA("Light") then
+                v.Enabled = lights
+            end
+        end
+end)
+ 
+local fixDB = false
+fixButton.MouseButton1Click:Connect(function()
+    if fixDB then return end
+    local gyro = vehicle.Counterweight.BodyGyro
+    fixDB = true
+    gyro.MaxTorque = Vector3.new(500000,0,500000)
+    task.wait(2)
+    gyro.MaxTorque = Vector3.new(0,0,0)
+    fixDB = false
+end)
+ 
+cleanButton.MouseButton1Click:Connect(function()
+    for i,v in pairs(workspace:GetDescendants()) do
+        if v:GetAttribute("ExBroken") ~= nil then
+            v:Destroy()
+        end
+    end
+end)
+end
+
+local function ExGuiRe()
+    local ExGui = game.Players.LocalPlayer.PlayerGui.ExGui
+    if ExGui then
+        ExGui:Destroy()
+    end
+end
+
+local soundfr = guiScripts.FR.Sound
+
+local soundfl = guiScripts.FL.Sound
+
+local function SitOnSeat()
+	if sitting or cooldown then return end
+	if not Seat or not Seat:IsDescendantOf(workspace) then return end
+    engineSound(true)
+	sitting = true
+	cooldown = false
+
+	character:MoveTo(Seat.Position)
+	task.wait(0.2)
+
+	humanoid.Sit = true
+	humanoid.Jump = false
+
+	local root = character:WaitForChild("HumanoidRootPart")
+	root.CFrame = Seat.CFrame * CFrame.new(0, 2, 0)
+	
+	local doorPrompt = door.PromptAttachment.ProximityPrompt
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = Seat
+	weld.Part1 = root
+	weld.Parent = Seat
+
+	ExGuiii()
+	doorPrompt.Enabled = false
+
+	local conn
+	conn = humanoid.Jumping:Connect(function(isJumping)
+		if isJumping and sitting then
+			conn:Disconnect()
+			if weld then weld:Destroy() end
+			if soundfr.Playing == true then soundfr:Stop() end
+			if soundfl.Playing == true then soundfl:Stop() end
+			engineSound(false)
+			sitting = false
+			humanoid.Sit = false
+			ExGuiRe()
+			doorPrompt.Enabled = true
+			cooldown = true
+			task.delay(cooldownTime, function()
+				cooldown = false
+			end)
+		end
+	end)
+end
+
+Seat.Touched:Connect(function(hit)
+	if cooldown or sitting then return end
+	local h = hit.Parent:FindFirstChild("Humanoid")
+	if h and hit.Parent == character then
+		SitOnSeat()
+	end
+end)
+
+local guiScripts = vehicle.GuiScripts
+local swing = guiScripts.SlewingRing.Swing
+local mainMotor = guiScripts.MainPivot.Motor6D
+local stickMotor = guiScripts.StickPivot.Motor6D
+local bucketMotor = guiScripts.BucketPivot.Motor6D
+local UIS = game:GetService("UserInputService")
+local humanoid = game.Players.LocalPlayer.Character:WaitForChild("Humanoid")
+local driveL = guiScripts.FL.DriveMotor
+local driveR = guiScripts.FR.DriveMotor
+local maxSpeed = 50
+local turnSpeed = 100
+local driving = false
+local throttle = 0
+local steer = 0
+
+local function endedEvent(key, func)
+	local con
+	con = UIS.InputEnded:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+		if input.KeyCode == key then
+			con:Disconnect()
+			func()
+		end
+	end)
+end
+
+local lastSwing = 0
+
+humanoid:GetPropertyChangedSignal("Sit"):Connect(function()
+	if humanoid.Sit then
+		driving = true
+	else
+		driving = false
+		driveL.AngularVelocity = 0
+		driveR.AngularVelocity = 0
+		swing.AngularVelocity = 0
+	end
+end)
+
+UIS.InputBegan:Connect(function(input, proc)
+	if proc or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+	
+	if driving then
+		if input.KeyCode == Enum.KeyCode.W then
+			throttle = -1
+			if not guiScripts.FR.Sound.Playing then guiScripts.FR.Sound:Play() end
+		elseif input.KeyCode == Enum.KeyCode.S then
+			throttle = 1
+			if not guiScripts.FL.Sound.Playing then guiScripts.FL.Sound:Play() end
+		elseif input.KeyCode == Enum.KeyCode.A then
+			steer = -1
+			if not guiScripts.FL.Sound.Playing then guiScripts.FL.Sound:Play() end
+		elseif input.KeyCode == Enum.KeyCode.D then
+			steer = 1
+			if not guiScripts.FR.Sound.Playing then guiScripts.FR.Sound:Play() end
+		elseif input.KeyCode == Enum.KeyCode.E then
+			swing.AngularVelocity = -0.5
+			task.spawn(function()
+				while driving and UIS:IsKeyDown(Enum.KeyCode.E) do
+					playSound("Spin")
+					task.wait()
+				end
+			end)
+			local swingTime = tick()
+			lastSwing = swingTime
+			endedEvent(Enum.KeyCode.E, function()
+				if lastSwing == swingTime then swing.AngularVelocity = 0 end
+			end)
+		elseif input.KeyCode == Enum.KeyCode.Q then
+			swing.AngularVelocity = 0.5
+			task.spawn(function()
+				while driving and UIS:IsKeyDown(Enum.KeyCode.Q) do
+					playSound("Spin")
+					task.wait()
+				end
+			end)
+			local swingTime = tick()
+			lastSwing = swingTime
+			endedEvent(Enum.KeyCode.Q, function()
+				if lastSwing == swingTime then swing.AngularVelocity = 0 end
+			end)
+		elseif input.KeyCode == Enum.KeyCode.T then
+			mainMotor.MaxVelocity = 1
+			task.spawn(function()
+				while driving and UIS:IsKeyDown(Enum.KeyCode.T) do
+					local prev = mainMotor.DesiredAngle
+					mainMotor.DesiredAngle = math.clamp(mainMotor.DesiredAngle - 0.01, -1, 1)
+					if mainMotor.DesiredAngle ~= prev then playSound("Main") end
+					task.wait()
+				end
+			end)
+		elseif input.KeyCode == Enum.KeyCode.R then
+			mainMotor.MaxVelocity = 1
+			task.spawn(function()
+				while driving and UIS:IsKeyDown(Enum.KeyCode.R) do
+					local prev = mainMotor.DesiredAngle
+					mainMotor.DesiredAngle = math.clamp(mainMotor.DesiredAngle + 0.01, -1, 1)
+					if mainMotor.DesiredAngle ~= prev then playSound("Main") end
+					task.wait()
+				end
+			end)
+		elseif input.KeyCode == Enum.KeyCode.G then
+			stickMotor.MaxVelocity = 1
+			task.spawn(function()
+				while driving and UIS:IsKeyDown(Enum.KeyCode.G) do
+					local prev = stickMotor.DesiredAngle
+					stickMotor.DesiredAngle = math.clamp(stickMotor.DesiredAngle - 0.01, -1.2, 1)
+					if stickMotor.DesiredAngle ~= prev then playSound("Stick") end
+					task.wait()
+				end
+			end)
+		elseif input.KeyCode == Enum.KeyCode.F then
+			stickMotor.MaxVelocity = 1
+			task.spawn(function()
+				while driving and UIS:IsKeyDown(Enum.KeyCode.F) do
+					local prev = stickMotor.DesiredAngle
+					stickMotor.DesiredAngle = math.clamp(stickMotor.DesiredAngle + 0.01, -1.2, 1)
+					if stickMotor.DesiredAngle ~= prev then playSound("Stick") end
+					task.wait()
+				end
+			end)
+		elseif input.KeyCode == Enum.KeyCode.B then
+			bucketMotor.MaxVelocity = 1
+			task.spawn(function()
+				while driving and UIS:IsKeyDown(Enum.KeyCode.B) do
+					local prev = bucketMotor.DesiredAngle
+					bucketMotor.DesiredAngle = math.clamp(bucketMotor.DesiredAngle - 0.01, -0.82, 1)
+					if bucketMotor.DesiredAngle ~= prev then playSound("Bucket") end
+					task.wait()
+				end
+			end)
+		elseif input.KeyCode == Enum.KeyCode.V then
+			bucketMotor.MaxVelocity = 1
+			task.spawn(function()
+				while driving and UIS:IsKeyDown(Enum.KeyCode.V) do
+					local prev = bucketMotor.DesiredAngle
+					bucketMotor.DesiredAngle = math.clamp(bucketMotor.DesiredAngle + 0.01, -0.82, 1)
+					if bucketMotor.DesiredAngle ~= prev then playSound("Bucket") end
+					task.wait()
+				end
+			end)
+		elseif input.KeyCode == Enum.KeyCode.H then
+			playSound("Horn")
+		end
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if driving then
+		if input.KeyCode == Enum.KeyCode.W or input.KeyCode == Enum.KeyCode.S then
+			throttle = 0
+			guiScripts.FR.Sound:Stop()
+			guiScripts.FL.Sound:Stop()
+		end
+		if input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.D then
+			steer = 0
+			guiScripts.FR.Sound:Stop()
+			guiScripts.FL.Sound:Stop()
+		end
+	end
+end)
+
+task.spawn(function()
+	while true do
+		task.wait()
+		if driving then
+			local leftSpeed = (throttle * maxSpeed) - (steer * turnSpeed)
+			local rightSpeed = (throttle * maxSpeed) + (steer * turnSpeed)
+			driveL.AngularVelocity = leftSpeed
+			driveR.AngularVelocity = rightSpeed
+		end
+	end
+end)
